@@ -31,7 +31,7 @@ export function config(env=process.env) {
     if (relativePath.startsWith('..') || isAbsolute(relativePath)) throw Error('DATA_DIR must be inside the mounted volume.');
   }
   return {production,port,origin:origin.origin,host:production?'0.0.0.0':'127.0.0.1',
-    dataDir,passwordHash:env.AUTH_PASSWORD_HASH,sessionSeconds:12*60*60};
+    dataDir,passwordHash:env.AUTH_PASSWORD_HASH,sessionSeconds:12*60*60,allowDataImport:env.ENABLE_DATA_IMPORT==='true'};
 }
 
 async function body(req,limit=32768) {
@@ -104,6 +104,17 @@ export function createApp(options) {
         throw new AppError(401,'Please sign in again.');
       }
       if(write && !equalToken(req.headers['x-csrf-token'],session.csrf)) throw new AppError(403,'Reload the page before saving.');
+      // Temporarily enabled for private bootstrap transfers; never part of a build.
+      if(['/api/import-snapshot','/api/import-calendar'].includes(path) && req.method==='POST') {
+        if(!options.allowDataImport) throw new AppError(404,'Import is disabled.');
+        const x=await body(req,15000000);
+        if(path==='/api/import-snapshot') store.importSnapshot(x.snapshot);
+        else {
+          if(typeof x.calendar!=='string' || typeof x.version!=='string') throw new AppError(400,'Supply a calendar and plan version.');
+          store.importCalendar(x.calendar,x.version);
+        }
+        return respond(res,200,{ok:true});
+      }
       if(privateFiles.has(path) && req.method==='GET') {
         const [filename,type]=privateFiles.get(path);
         return respond(res,200,readFileSync(resolve(root,filename)),type);

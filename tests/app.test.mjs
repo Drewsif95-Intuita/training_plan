@@ -143,3 +143,22 @@ test('source HTML contains no embedded snapshot, browser journal store or extern
   assert.doesNotMatch(html,/snapshot-data|__SNAPSHOT_JSON__|<script>|<script src="http/);
   for(const match of js.matchAll(/localStorage\.(?:getItem|setItem)\('([^']+)'/g))assert.equal(match[1],'training-theme');
 });
+
+test('private bootstrap import requires enablement, authentication and CSRF',async t=>{
+  const disabled=await setup(t),disabledAuth=await disabled.login();
+  assert.equal((await disabled.mutate('/api/import-snapshot',disabledAuth,{snapshot:fixture()})).status,404);
+  const a=await setup(t,{allowDataImport:true});
+  const request={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshot:fixture()})};
+  assert.equal((await a.request('/api/import-snapshot',request)).status,401);
+  const auth=await a.login();
+  assert.equal((await a.request('/api/import-snapshot',{...request,headers:{...request.headers,Cookie:auth.cookie}})).status,403);
+  assert.equal((await a.mutate('/api/import-snapshot',auth,{snapshot:fixture()})).status,200);
+  const previous=a.store.snapshot(),invalid=fixture();invalid.activities.push(invalid.activities[0]);
+  assert.equal((await a.mutate('/api/import-snapshot',auth,{snapshot:invalid})).status,400);
+  assert.deepEqual(a.store.snapshot(),previous);
+  const calendar='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n';
+  assert.equal((await a.mutate('/api/import-calendar',auth,{calendar,version:'demo-v1'})).status,200);
+  assert.equal(await (await a.request('/api/calendar',{headers:{Cookie:auth.cookie}})).text(),calendar);
+  assert.equal((await a.mutate('/api/import-calendar',auth,{calendar:123,version:'demo-v1'})).status,400);
+  assert.equal((await a.mutate('/api/import-calendar',auth,{calendar:calendar+'changed',version:'demo-v1'})).status,409);
+});

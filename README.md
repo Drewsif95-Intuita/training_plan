@@ -42,7 +42,7 @@ There is no journal-file import screen yet.
 
 ## Validation in this task
 
-- 17 automated integration and rendering checks passed on Node 24.19.0.
+- 18 automated integration and rendering checks passed on Node 24.19.0.
 - The supplied private v3 snapshot and plan passed a separate import round trip.
 - Original ICS bytes and UIDs were unchanged. All seven renderer paths, four
   sport tabs and twelve week selections executed successfully with the supplied
@@ -113,6 +113,22 @@ layout, browser sign-in/out, back-cache and install/offline behaviour therefore
 remain unverified. Renderer smoke checks use DOM stubs and do not test layout.
 
 ## Backup and restore
+
+For the first private transfer to a hosted service, temporarily set
+`ENABLE_DATA_IMPORT=true`. The authenticated, same-origin, CSRF-protected
+`POST /api/import-snapshot` accepts `{ "snapshot": ... }` and
+`POST /api/import-calendar` accepts `{ "calendar": "...", "version": "..." }`.
+The request limit is 15 MB. Imports use the same validation, immutable versions
+and journal-preservation rules as the local management commands. Send data over
+HTTPS, never through Git. Set `ENABLE_DATA_IMPORT=false` and redeploy after the
+transfer; import endpoints are disabled by default. The single athlete account
+is also the administrator. These routes are not a multi-user upload feature.
+
+Railway deployment settings are configured on the existing service. The current
+Railway API rejects setting `railwayConfigFile` for the legacy TOML configuration;
+the Dockerfile is used directly. Verify live service settings after changes.
+The account currently allows no managed volume backups. Export and SQLite backup
+commands below remain available; automated off-volume backups are not configured.
 
 ```bash
 node --env-file=.env scripts/manage.mjs backup /absolute/private/backup-new.sqlite
