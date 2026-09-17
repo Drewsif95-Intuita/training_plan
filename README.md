@@ -22,15 +22,16 @@ assessment or measurement refresh in this increment.
 
 This is the first tested increment requested in the handover. The app is deployed
 on the existing Railway service with password protection and a 500 MB persistent
-volume mounted at `/data` (17 September 2026). Private snapshot/calendar import
-awaits authorisation; `ENABLE_DATA_IMPORT=false`. Live API setup remains pending.
+volume mounted at `/data` (17 September 2026). The private-data import routes are
+disabled (`ENABLE_DATA_IMPORT=false`). Private data is administered outside this
+repository. Live API setup remains pending.
 No API token is included or requested in a chat message.
 
 The deployed app is at https://training-dashboard-production-5262.up.railway.app.
 Login details are delivered privately and are not stored in this repository.
 Deployment is currently manual: the Railway GitHub App is not installed for this
 repository, so automatic deployment and waiting for GitHub CI are not enabled.
-All 18 GitHub checks passed before the latest manual deployment; the Docker build
+The 18-test suite passed in GitHub CI before deployment; the Docker build
 also runs the test suite. Automatic Railway volume backups are unavailable under
 the current account limits.
 
@@ -57,8 +58,9 @@ There is no journal-file import screen yet.
 - Original ICS bytes and UIDs were unchanged. All seven renderer paths, four
   sport tabs and twelve week selections executed successfully with the supplied
   data in a DOM stub harness. No private records are included in the tests.
-- Railway deployment, volume attachment, HTTPS health and unauthenticated access
-  checks passed. Real browser and physical-phone checks remain pending.
+- Railway deployment, volume attachment, HTTPS health, session handling and
+  unauthenticated access checks passed. The hosted sign-in page was visually
+  checked in a browser. Authenticated browser and physical-phone checks remain pending.
 
 ## Local setup
 
@@ -97,12 +99,12 @@ private file types; additionally inspect staged changes before pushing.
 Reuse the existing service identified in the private handover. Its initial empty
 configuration has now been deployed with the selected repository, authentication
 variables, HTTPS domain and persistent volume. The checklist below remains the
-reference for completing private data import and validating future changes.
+reference for validating future changes.
 Do not create a replacement project or service.
 
-1. The selected repository is `Drewsif95-Intuita/training_plan`. Review this source on
-   its feature branch before choosing the deployment branch. The source contains
-   only synthetic test records; keep actual data outside Git history.
+1. The selected repository is `Drewsif95-Intuita/training_plan`, deployed from `main`.
+   The owner has authorised direct commits. The source contains only synthetic test
+   records; keep actual data outside Git history.
 2. Attach a persistent volume at `/data` to the existing service, keep one replica,
    and enable volume backups within the authorised account limits. A volume
    protects data through restarts; an independent backup protects against loss.
@@ -120,9 +122,9 @@ Do not create a replacement project or service.
    sign-out, app installation, offline behaviour and browser-back behaviour.
 
 Physical iPhone/Safari checks remain outstanding; local emulation cannot replace them.
-In this task, the available browser could not reach the local server. Visual
-layout, browser sign-in/out, back-cache and install/offline behaviour therefore
-remain unverified. Renderer smoke checks use DOM stubs and do not test layout.
+The hosted sign-in page was checked, but authenticated dashboard layout, browser
+sign-in/out, back-cache and install/offline behaviour remain unverified. Renderer
+smoke checks use DOM stubs and do not test layout.
 
 ## Backup and restore
 
