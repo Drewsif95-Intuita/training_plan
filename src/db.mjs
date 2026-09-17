@@ -95,6 +95,19 @@ export function openStore(dir) {
       plans:rows('plans'),calendars:db.prepare('SELECT version, body FROM calendars').all(),
       checkins:journal('checkin'),benchmarks:journal('benchmark'),answers:journal('answers')};
   }
-  return {db,file,setting,set,journal,snapshot,importSnapshot,save,remove,importCalendar,exportAll,
+  function applyRefresh({activities,recovery,metadata,status}) {
+    const current=snapshot();
+    if(!current) throw new AppError(409,'Import the existing plan before refreshing.');
+    validateSnapshot({...current,activities,recovery,meta:{...current.meta,...metadata}});
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec('DELETE FROM activities; DELETE FROM recovery;');
+      for(const row of activities) db.prepare('INSERT INTO activities VALUES (?,?)').run(row.id,JSON.stringify(row));
+      for(const row of recovery) db.prepare('INSERT INTO recovery VALUES (?,?)').run(row.date,JSON.stringify(row));
+      const stored=setting('snapshot');set('snapshot',{...stored,meta:{...stored.meta,...metadata}});
+      set('tredictSync',status);db.exec('COMMIT');
+    } catch(error){db.exec('ROLLBACK');throw error;}
+  }
+  return {db,file,setting,set,journal,snapshot,importSnapshot,applyRefresh,save,remove,importCalendar,exportAll,
     backup:dest=>backup(db,dest),close:()=>db.close()};
 }

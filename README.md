@@ -1,8 +1,8 @@
-# Training dashboard — increment 1
+# Training dashboard — increment 2
 
 This continues the supplied v3 dashboard. Its layout, seven views, charts, plan
-prescriptions and metric distinctions are retained. There is no new training
-assessment or measurement refresh in this increment.
+prescriptions and metric distinctions are retained. This increment adds a
+read-only Tredict refresh connection without changing the training plan.
 
 ## Implemented
 
@@ -17,28 +17,32 @@ assessment or measurement refresh in this increment.
 - v3 source HTML/CSS/JavaScript separated from private athlete data. Benchmark
   values previously embedded in the template now come from private storage.
 - Source-boundary check, integration tests, Docker configuration and GitHub CI.
+- Authenticated manual refresh and a persistent daily refresh schedule when a
+  Tredict Personal API token is configured. Per-source status separates successful
+  fetches from observation dates and records failed attempts.
 
 ## Deliberately unfinished
 
-This is the first tested increment requested in the handover. The app is deployed
+This continues the tested increments requested in the handover. The app is deployed
 on the existing Railway service with password protection and a 500 MB persistent
 volume mounted at `/data` (17 September 2026). The private-data import routes are
 disabled (`ENABLE_DATA_IMPORT=false`). Private data is administered outside this
-repository. Live API setup remains pending.
+repository. A live Tredict account still requires private token configuration.
 No API token is included or requested in a chat message.
 
 The deployed app is at https://training-dashboard-production-5262.up.railway.app.
 Login details are delivered privately and are not stored in this repository.
 Deployment is currently manual: the Railway GitHub App is not installed for this
 repository, so automatic deployment and waiting for GitHub CI are not enabled.
-The 18-test suite passed in GitHub CI before deployment; the Docker build
-also runs the test suite. Automatic Railway volume backups are unavailable under
-the current account limits.
+The Docker build runs the complete test suite before starting the app. Automatic
+Railway volume backups are unavailable under the current account limits.
 
-Tredict daily/manual synchronisation and the Running dynamics view are next.
-`POST /api/refresh` reports `501 Not connected` and leaves the snapshot untouched;
-it does not pretend to perform a refresh. Status distinguishes the import time,
-original retrieval time, observation dates and the absence of an app fetch.
+Tredict refresh is implemented but remains inactive until a token is configured.
+`POST /api/refresh` reports `503 Not connected` without a token, or `202 Accepted`
+for an authenticated refresh job. The Running dynamics view remains pending.
+Status distinguishes import time, original retrieval time, successful app fetches,
+source observation dates and failed attempts. A configured token alone is not
+reported as proof of a successful connection.
 
 The imported plan JSON is canonical for the dashboard and readable text export.
 The original ICS is kept byte-for-byte against its immutable plan version so
@@ -53,11 +57,16 @@ There is no journal-file import screen yet.
 
 ## Validation in this task
 
-- 18 automated integration and rendering checks passed on Node 24.19.0.
-- The supplied private v3 snapshot and plan passed a separate import round trip.
-- Original ICS bytes and UIDs were unchanged. All seven renderer paths, four
-  sport tabs and twelve week selections executed successfully with the supplied
-  data in a DOM stub harness. No private records are included in the tests.
+- 29 automated integration and rendering checks pass on Node 24.19.0.
+- Synthetic API tests cover pagination, duplicate IDs, units, missing observations,
+  timezone conversion, sparse daily minimum HR revisions, token isolation,
+  redirected/cross-host pagination protection, failed refresh retention,
+  retry delays, concurrent refreshes and scheduling across process restarts.
+- Live server-to-Tredict verification requires the owner-provided token; connector
+  access in ChatGPT does not provide that credential to the deployed app.
+- Synthetic import and export tests preserve original calendar bytes and UIDs.
+  All seven renderer paths, four sport tabs and fixture week selections execute
+  in a DOM stub harness. No private records are included in the tests.
 - Railway deployment, volume attachment, HTTPS health, session handling and
   unauthenticated access checks passed. The hosted sign-in page was visually
   checked in a browser. Authenticated browser and physical-phone checks remain pending.
@@ -161,24 +170,52 @@ volume. Scheduled/off-volume backup configuration has not yet been applied.
 Rotate `AUTH_PASSWORD_HASH` to revoke all existing sessions on next startup, or
 run `revoke-sessions` against the active data directory to revoke immediately.
 
-## Next increment: Tredict and running dynamics
+## Tredict connection setup
 
-The documented Personal API uses bearer tokens against the OAuth2 API endpoints;
-the ChatGPT connection does not provision a token for this server. The intended
-read scopes are `activityRead` and `bodyvaluesRead`. A personal token may deactivate
-after two weeks without visiting Tredict and reactivate on a web visit.
+1. In Tredict, open **Settings → Personal API** and create a token with only
+   `activityRead` and `bodyvaluesRead`.
+2. Add it directly as **`TREDICT_TOKEN`** in this service's Railway variables.
+   Keep it out of chat, the repository, frontend code, screenshots and logs.
+3. Deploy the current `main` revision with the saved variables. A configured token
+   enables a refresh on startup when due, then every 24 hours from the latest
+   attempt. The scheduler checks once a minute and persists its last attempt in
+   SQLite, so restarts do not trigger repeated fetches. `TREDICT_SYNC_ENABLED=false`
+   pauses all refresh requests without deleting stored data.
+4. Sign in and inspect **Data & definitions**. A successful app fetch and source
+   statuses verify the connection. The **Refresh** button runs the same protected
+   background job; an already-running job is reused.
 
-Verified activity routes:
+The job reads activity summaries, overnight HRV, sleep and dynamic daily minimum
+heart rate for the latest 120 days. Older stored history is retained; upstream
+record deletions are not mirrored. Unknown miscellaneous sports are labelled
+Other rather than inferred from titles. Activity dates use the recording timezone
+when present, with Europe/London as fallback. Health date tags and body-value
+measurement offsets preserve the provider's calendar day. The initial snapshot
+retrieval timestamp stays separate from later fetch timestamps.
 
-| Purpose | Official contract |
-| --- | --- |
-| Activity list | `GET /api/oauth/v2/activityList`, `startDate`, `pageSize` (50–1000), `extendedSummary=1`; follow `_links.next.href` |
-| Detailed activity | `GET /api/oauth/v2/activity/{id}?extraValues=1&allSeries=1&withLaps=1` |
+A refresh is applied atomically only when all four sources validate. Any failed,
+malformed, incomplete or rate-limited source retains the entire previous snapshot.
+Per-source status identifies the failure and marks other fetched sources as
+retained. Null values remain missing. Sparse body-value revisions are not forward
+filled and the static resting-HR setting never becomes a daily minimum reading.
+Plans, original calendars, benchmarks and journals are not rewritten by refresh.
 
-Responses can return `401`, `403` or `429`. Validate next-page URLs against the
-official host before sending a token. Detailed sampled series are not the same
-contract as ChatGPT activity-list tool responses. Verify the health endpoints,
-actual field units and current limits before implementing their normalisers.
+Requests only send the bearer token to the documented Tredict HTTPS origin.
+Cross-origin/path-changing pagination, redirects, repeated cursors and oversized
+responses are rejected. Requests have timeouts, bounded pagination and pacing.
+Manual requests are limited to one per minute and honour longer `Retry-After`
+delays. Error status does not contain upstream response bodies or credentials.
+
+Personal tokens may deactivate after two weeks without a Tredict web visit and
+reactivate on the next visit. The dashboard keeps its previous data while the
+connection is unavailable. Detailed running dynamics and revised-plan ICS
+creation remain separate future increments.
+
+## Next increment: running dynamics
+
+Use the documented detailed activity endpoint with
+`extraValues=1&allSeries=1&withLaps=1`. Summary values and sampled-series averages
+are different measurements and must remain distinct.
 
 Preserve measured/missing points and sampling intervals. Keep reported summary
 averages separate from sampled-series means; validate grade separately. Use only
@@ -190,6 +227,8 @@ refresh and expose coverage and failures per source.
 
 - [Tredict Personal API](https://www.tredict.com/faq/personal-api---connect-your-own-scripts-or-personal-applications/)
 - [Tredict official API contract](https://www.tredict.com/blog/oauth_docs/)
+- [Tredict activity response contract](https://www.tredict.com/skills/activities.md)
+- [Tredict health response contract](https://www.tredict.com/skills/health-data.md)
 - [Node SQLite and backup API](https://nodejs.org/api/sqlite.html)
 - [Node cryptography API](https://nodejs.org/docs/latest-v24.x/api/crypto.html)
 - [Railway GitHub deployments](https://docs.railway.com/deployments/github-autodeploys)

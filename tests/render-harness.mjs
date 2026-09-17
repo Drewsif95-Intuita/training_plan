@@ -1,7 +1,7 @@
 // DOM stubs exercise renderer paths, not layout or real browser behaviour.
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
-export async function renderViews(snapshot) {
+export async function renderViews(snapshot,status={}) {
   const elements=new Map();
   const element=selector=>{
     if(!elements.has(selector))elements.set(selector,{innerHTML:'',textContent:'',style:{},
@@ -12,7 +12,7 @@ export async function renderViews(snapshot) {
   const api={
     '/api/session':{csrf:'synthetic-only',expiresAt:'2099-01-01T00:00:00Z'},
     '/api/snapshot':{snapshot},
-    '/api/status':{importedAt:'2025-02-05T09:00:00Z',latestObservation:{activities:snapshot.meta.activityLastDate}},
+    '/api/status':{importedAt:'2025-02-05T09:00:00Z',latestObservation:{activities:snapshot.meta.activityLastDate},...status},
     '/api/journal':{checkins:[],benchmarks:[],questionnaire:{answers:{},revision:0}}
   };
   const context=vm.createContext({

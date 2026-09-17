@@ -96,8 +96,18 @@ test('question answers and benchmarks persist and are included in the account ex
 
 test('not-connected refresh is explicit and never advances freshness or overwrites data',async t=>{
   const a=await setup(t),auth=await a.login(),previous=a.store.snapshot();
-  const r=await a.mutate('/api/refresh',auth,{});assert.equal(r.status,501);assert.deepEqual(a.store.snapshot(),previous);
+  const r=await a.mutate('/api/refresh',auth,{});assert.equal(r.status,503);assert.deepEqual(a.store.snapshot(),previous);
   const status=await (await a.request('/api/status',{headers:{Cookie:auth.cookie}})).json();assert.equal(status.lastSuccessfulFetch,null);assert.equal(status.latestObservation.activities,'2025-02-03');
+});
+
+test('manual refresh requires authentication and CSRF and returns a background job',async t=>{
+  const source={_embedded:{activityList:[]},_links:{}};
+  const a=await setup(t,{tredict:{token:'synthetic-token',requestSpacingMs:0,fetchImpl:async url=>Response.json(url.includes('activityList')?source:url.includes('/bodyvalues')?{bodyvalues:[]}:url.includes('/hrv')?{hrv:{}}:{sleep:{}})}});
+  assert.equal((await a.request('/api/refresh',{method:'POST'})).status,401);
+  const auth=await a.login();assert.equal((await a.request('/api/refresh',{method:'POST',headers:{Cookie:auth.cookie}})).status,403);
+  const r=await a.mutate('/api/refresh',auth,{});assert.equal(r.status,202);await a.sync.settled();
+  const status=await (await a.request('/api/status',{headers:{Cookie:auth.cookie}})).json();assert.equal(status.configured,true);assert.ok(status.lastSuccessfulFetch);
+  assert.equal(a.store.snapshot().activities.length,1);
 });
 
 test('original calendar retains stable UIDs and exact bytes through authenticated export',async t=>{

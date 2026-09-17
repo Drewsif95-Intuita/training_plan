@@ -61,7 +61,7 @@ export function validateSnapshot(x) {
   for (const a of x.activities) {
     if (!object(a) || typeof a.id!=='string' || ids.has(a.id) || !day(a.date)) bad('Invalid or duplicate activity.');
     ids.add(a.id);
-    if (!['running','cycling','swimming','strength','mobility','walking'].includes(a.sport)) bad('Unknown activity sport.');
+    if (!['running','cycling','swimming','strength','mobility','walking','other'].includes(a.sport)) bad('Unknown activity sport.');
     text(a.title,500,true);text(a.subSport,100,true);
     if (numeric(a.activeSeconds,0,1e7)==null || numeric(a.elapsedSeconds,0,1e7)==null || a.elapsedSeconds<a.activeSeconds) bad('Invalid activity duration.');
     for (const k of ['distanceM','avgHr','avgPowerW','cadence','ascentM']) numeric(a[k],0,1e8);

@@ -3,6 +3,7 @@ import { readFileSync, realpathSync, existsSync } from 'node:fs';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore } from './db.mjs';
+import { createTredictSync } from './tredict.mjs';
 import { AppError, object } from './validation.mjs';
 import { validHash, verifyPassword, token, digest, equalToken } from './auth.mjs';
 
@@ -30,8 +31,11 @@ export function config(env=process.env) {
     const relativePath=relative(realpathSync(mount),existsSync(dataDir)?realpathSync(dataDir):dataDir);
     if (relativePath.startsWith('..') || isAbsolute(relativePath)) throw Error('DATA_DIR must be inside the mounted volume.');
   }
+  const tredictToken=(env.TREDICT_TOKEN||'').trim();
+  if(tredictToken&&!/^[A-Za-z0-9._~+\/-]{16,4096}={0,2}$/.test(tredictToken))throw Error('TREDICT_TOKEN must be a bearer token without whitespace.');
   return {production,port,origin:origin.origin,host:production?'0.0.0.0':'127.0.0.1',
-    dataDir,passwordHash:env.AUTH_PASSWORD_HASH,sessionSeconds:12*60*60,allowDataImport:env.ENABLE_DATA_IMPORT==='true'};
+    dataDir,passwordHash:env.AUTH_PASSWORD_HASH,sessionSeconds:12*60*60,allowDataImport:env.ENABLE_DATA_IMPORT==='true',
+    tredict:{token:tredictToken,enabled:env.TREDICT_SYNC_ENABLED!=='false'}};
 }
 
 async function body(req,limit=32768) {
@@ -45,6 +49,7 @@ async function body(req,limit=32768) {
 
 export function createApp(options) {
   const store=openStore(options.dataDir),db=store.db;
+  const sync=createTredictSync(store,options.tredict);
   const cookieName=options.production?'__Host-training_session':'training_session';
   const authVersion=digest(options.passwordHash);
   // Changing the password invalidates old sessions on every device.
@@ -125,15 +130,8 @@ export function createApp(options) {
         return respond(res,200,{ok:true},'application/json',{'Set-Cookie':cookie('',0),'Clear-Site-Data':'"cache", "storage"'});
       }
       if(path==='/api/snapshot' && req.method==='GET') return respond(res,200,{snapshot:store.snapshot()});
-      if(path==='/api/status' && req.method==='GET') {
-        const snapshot=store.snapshot();
-        return respond(res,200,{mode:'imported-snapshot',integrationImplemented:false,
-          lastSuccessfulFetch:null,lastRefreshAttempt:null,lastRefreshError:null,
-          importedAt:store.setting('importedAt'),snapshotRetrievedAt:snapshot?.meta.retrievedAt??null,
-          latestObservation:{activities:snapshot?.meta.activityLastDate??null,hrv:snapshot?.meta.hrvLastDate??null,
-            sleep:snapshot?.meta.sleepLastDate??null,dailyMinimumHr:snapshot?.meta.restHrLastDate??null}});
-      }
-      if(path==='/api/refresh' && req.method==='POST') throw new AppError(501,'Live Tredict refresh is not connected in this increment. Your saved snapshot is unchanged.');
+      if(path==='/api/status' && req.method==='GET') return respond(res,200,sync.status());
+      if(path==='/api/refresh' && req.method==='POST') return respond(res,202,sync.refresh());
       if(path==='/api/journal' && req.method==='GET') return respond(res,200,{
         checkins:store.journal('checkin'),benchmarks:store.journal('benchmark'),
         questionnaire:store.journal('answers')[0]||{answers:{},revision:0}});
@@ -165,14 +163,15 @@ export function createApp(options) {
   };
   const server=http.createServer({maxHeaderSize:16384},(req,res)=>void handler(req,res));
   server.requestTimeout=15000;server.headersTimeout=10000;server.keepAliveTimeout=5000;
-  return {server,store};
+  server.once('close',()=>sync.stop());
+  return {server,store,sync};
 }
 
 if(process.argv[1] && resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   process.umask(0o077);
   try {
-    const options=config(),{server,store}=createApp(options);
-    server.listen(options.port,options.host,()=>console.log('Training app started.'));
-    for(const signal of ['SIGTERM','SIGINT']) process.once(signal,()=>server.close(()=>{store.close();process.exit(0);}));
+    const options=config(),{server,store,sync}=createApp(options);
+    server.listen(options.port,options.host,()=>{console.log('Training app started.');sync.start();});
+    for(const signal of ['SIGTERM','SIGINT']) process.once(signal,()=>{sync.stop();server.close(()=>{store.close();process.exit(0);});});
   } catch(error) {console.error(error.message);process.exit(1);}
 }
